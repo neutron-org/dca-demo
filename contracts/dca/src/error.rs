@@ -30,6 +30,12 @@ pub enum ContractError {
         reason: String,
     },
 
+    #[error("limit order execution used: {requested} usd, but owner only has: {available} available")]
+    InsufficientLiquidity {
+        requested: Uint128,
+        available: Uint128,
+    },
+
     #[error("Market {symbol}, {quote} not found in {location}")]
     UnsupportedMarket {
         symbol: String,
@@ -77,6 +83,9 @@ pub enum ContractError {
 
     #[error("Failed to convert value to Decimal")]
     DecimalConversionError,
+
+    #[error("Failed to devide decimal")]
+    DecimalDivisionError,
 
     #[error("No funds sent with deposit function")]
     NoFundsSent,

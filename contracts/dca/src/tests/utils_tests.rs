@@ -1,14 +1,8 @@
-use std::fmt;
 use std::str::FromStr;
-
 use crate::error::ContractError;
-use crate::msg::{
-    CombinedPriceResponse, DepositResult, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg,
-};
 use test_case::test_case;
-
 use crate::utils::{normalize_price, price_to_tick_index};
-use cosmwasm_std::{Decimal, Int128, Uint128};
+use cosmwasm_std::{Decimal, Int128};
 
 
 

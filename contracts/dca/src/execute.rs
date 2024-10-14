@@ -1,234 +1,217 @@
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use crate::state::{Balances, Config, PairData, Schedule, CONFIG, USER_BALANCES};
+use crate::state::{Schedule, CONFIG, SCHEDULES};
 use crate::utils::*;
+use cosmwasm_std::{BankMsg, Coin, Decimal, CosmosMsg, DepsMut, Env, Int128, MessageInfo, Response, Uint128};
+use neutron_std::types::neutron::dex::{LimitOrderType, MsgPlaceLimitOrder};
+use neutron_std::types::neutron::dex::DexQuerier;
 
-use cosmwasm_std::{
-    attr, entry_point, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    Int128, MessageInfo, QueryRequest, Response, StdResult, Uint128, Uint64,
-};
-use cw2::set_contract_version;
-
-pub type ContractResult<T> = core::result::Result<T, ContractError>;
-
-use neutron_sdk::bindings::{msg::NeutronMsg, query::NeutronQuery};
-use serde_json::to_string;
-use neutron_std::types::neutron::dex::MsgPlaceLimitOrder;
-use neutron_std::types::neutron::dex::LimitOrderType;
-
-
+// Deposits a DCA schedule. Users can deposit multiple times to create multiple schedules 
+// but there is a limit to the total number of schedules
+// Only allows DCA buys from USD to NTRN, so only USD_denom can be deposited
 pub fn deposit_dca(
-    deps: DepsMut<NeutronQuery>,
+    deps: DepsMut,
     _env: Env,
     info: MessageInfo,
-) -> Result<Response<NeutronMsg>, ContractError> {
+    max_sell_amount: Uint128,
+    max_slippage_basis_points: u128,
+) -> Result<Response, ContractError> {
     // Load the contract configuration from storage
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut user_balances = USER_BALANCES.may_load(deps.storage, &info.sender)?
-    .unwrap_or_default();  // Use default if not found
+    let config = CONFIG.load(deps.storage)?;
+    // get the current user's schedule, default if no schedule found
+    let mut schedules = SCHEDULES.load(deps.storage)?;
+
     // Extract the sent funds from the transaction info
     let sent_funds = info.funds;
-    
+
     // If no funds are sent, return an error
     if sent_funds.is_empty() {
         return Err(ContractError::NoFundsSent {});
     }
-
+    // Only allow 1 token to be sent
     if sent_funds.len() > 1 {
-        return Err(ContractError::MultipleFundsSent{});
-    }
-    
-    // Check if the user already has a balance
-    if !user_balances.ntrn.amount.is_zero() || !user_balances.usd.amount.is_zero() {
-        return Err(ContractError::ExistingBalance {});
+        return Err(ContractError::MultipleFundsSent {});
     }
 
-    // Check if the schedule is already maxed out
-    if config.schedules.len() >= config.max_schedules as usize {
+    // Check if the schedule count is already maxed out
+    if schedules.schedules.len() >= config.max_schedules as usize {
         return Err(ContractError::MaxSchedulesReached {});
+    }
+
+    // only allow usd to be sent. since we only allow DCA buys from USD to NTRN
+    if sent_funds[0].denom != config.pair_data.denom_usd {
+        return Err(ContractError::InvalidToken);
     }
 
     // Create a new schedule for the user
     let new_schedule = Schedule {
         owner: info.sender.clone(),
-        max_sell_amount: sent_funds[0].amount,
-        max_slippage_basis_points: 10,
-        denom: sent_funds[0].denom.clone(),
+        max_sell_amount: max_sell_amount,
+        max_slippage_basis_points: max_slippage_basis_points,
+        remaining_amount: sent_funds[0].amount,
+        id: schedules.nonce,
     };
+    schedules.schedules.push(new_schedule);
+    schedules.nonce += 1;
 
-    // Add the new schedule to the config
-    config.schedules.push(new_schedule);
-
-    // Iterate through the sent funds and update the contract's balances
-    for coin in sent_funds.iter() {
-        if coin.denom == user_balances.ntrn.denom {
-            user_balances.ntrn.amount += coin.amount;
-        } else if coin.denom == user_balances.usd.denom {
-            user_balances.usd.amount += coin.amount;
-        } else {
-            // Return an error if an unsupported token is sent
-            return Err(ContractError::InvalidToken);
-        }
-    }
-
-    // Save the updated configuration with new balances back to the contract's storage
-    USER_BALANCES.save(deps.storage, &info.sender, &user_balances)?;
-    CONFIG.save(deps.storage, &config)?;
+    // Save schedules, config not modified
+    SCHEDULES.save(deps.storage, &schedules)?;
     // Return a success response with updated balances
     Ok(Response::new()
         .add_attribute("action", "deposit")
         .add_attribute("from", info.sender.to_string())
-        .add_attribute("token_0_amount", user_balances.ntrn.amount.to_string())
-        .add_attribute("token_1_amount", user_balances.usd.amount.to_string()))
+        .add_attribute("amount", sent_funds[0].amount.to_string()))
 }
 
-
 pub fn run_schedule(
-    deps: DepsMut<NeutronQuery>,
+    deps: DepsMut,
     env: Env,
-    info: MessageInfo,
-) -> Result<Response<NeutronMsg>, ContractError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut user_balances = USER_BALANCES.load(deps.storage, &info.sender)?;
+) -> Result<Response, ContractError> {
+    
+    let config = CONFIG.load(deps.storage)?;
+    let mut schedules = SCHEDULES.load(deps.storage)?;
 
-    let mut messages: Vec<NeutronMsg> = vec![];
+    let mut messages: Vec<CosmosMsg> = vec![];
+    let mut schedules_to_remove: Vec<u128> = vec![];
+    let querier = DexQuerier::new(&deps.querier);
 
-    // get the current slinky price and tick index
+    // get the current slinky price and tick index. 
     let price = get_price(deps.as_ref(), env.clone())?;
-    let tick_index = price_to_tick_index(price)?;
 
     // Loop over all schedules
-    for schedule in config.schedules.iter_mut() {
-        let current_schedule_balance: Uint128 = get_user_balance(&deps, schedule.denom, schedule.owner)?;
-
+    for schedule in schedules.schedules.iter_mut() {
+        let current_schedule_balance: Uint128 = schedule.remaining_amount;
         // Check if the current schedule balance is 0
         if current_schedule_balance.is_zero() {
-            // Update user balances
-            if schedule.denom == user_balances.ntrn.denom {
-                user_balances.ntrn.amount = Uint128::zero();
-            } else if schedule.denom == user_balances.usd.denom {
-                user_balances.usd.amount = Uint128::zero();
-            }
-            
-            // Remove this schedule from the config
-            config.schedules.retain(|s| s.owner != schedule.owner || s.denom != schedule.denom);
-    
-            // Save the updated config and user balances
-            CONFIG.save(deps.storage, &config)?;
-            USER_BALANCES.save(deps.storage, &info.sender, &user_balances)?;
+            // Mark this schedule for removal
+            schedules_to_remove.push(schedule.id);
+            continue;
+        }
+ 
+        // sell amount is the min of the current schedule balance and the max_sell_amount
+        let sell_amount = std::cmp::min(current_schedule_balance, schedule.max_sell_amount);
+        let (token_in, token_out) = (
+            config.pair_data.denom_usd.clone(),
+            config.pair_data.denom_ntrn.clone(),
+        );
 
-            // Exit the function with a response
-            return Ok(Response::new()
-                .add_attribute("action", "run_schedule")
-                .add_attribute("result", "schedule_removed")
-                .add_attribute("reason", "zero_balance"));
+        // the schedule_price is the price with the slippage_adjustment applied
+        // TODO check price for directionality when neutron_std is fixed
+        let basis_point_adjustement = price * Decimal::from_ratio(schedule.max_slippage_basis_points, 10000 as u128);
+        //increase target sell price by the basis point adjustement
+        let schedule_price = price + basis_point_adjustement;
+
+        // TODO: Fix when entrind_std is updated. We normally only need the price for limit orders, but Neutron_STD doesn't work with 
+        // nullible feilds properly so we must also provide the tick index.
+        let tick_index_in_to_out = price_to_tick_index(schedule_price)?;
+
+        let estimated_input_amount: Uint128 = match querier.estimate_place_limit_order(
+            env.contract.address.to_string(),
+            schedule.owner.to_string(),
+            token_in.clone(),
+            token_out.clone(),
+            tick_index_in_to_out,
+            sell_amount.to_string(),
+            LimitOrderType::ImmediateOrCancel.into(),
+            None,
+            Int128::MAX.to_string()) {
+                Ok(amount) => amount.swap_in_coin.unwrap().amount.parse::<Uint128>().unwrap(),
+                Err(_) => Uint128::zero(),
+            };
+
+        // if the estimated amount swapped is zero it means that there was no usable liquidity at the price, so we don't include the message
+        if estimated_input_amount == Uint128::zero() {
+            continue;
         }
 
-        let sell_amount = std::cmp::min(current_schedule_balance, schedule.max_sell_amount);
-       
-        let (token_in, token_out) = if schedule.denom == config.pair_data.denom_ntrn {
-            (config.pair_data.denom_ntrn.clone(), config.pair_data.denom_usd.clone())
-        } else {
-            (config.pair_data.denom_usd.clone(), config.pair_data.denom_ntrn.clone())
-        };
+        // update the schedule's remaining amount
+        if sell_amount < current_schedule_balance {
+            schedule.remaining_amount -= sell_amount;
+        } else if sell_amount == current_schedule_balance {
+            schedule.remaining_amount = Uint128::zero();
+            //remove the schedule from the list
+            schedules_to_remove.push(schedule.id);
+        }
+        else{
+            //if somehow the amount sold is greater than the user's balance, stop all other executions and error
+            return Err(ContractError::InsufficientLiquidity {
+                requested: current_schedule_balance,
+                available: sell_amount,
+            });
+        }
 
-        let msg_place_limit_order = MsgPlaceLimitOrder {
+        // place an IMMEDIATE_OR_CANCEL limit order. This will sell as much as it can at the price
+        // if the price changes before the order is filled the order will be cancelled
+        let msg_place_limit_order = Into::<CosmosMsg>::into(MsgPlaceLimitOrder {
             creator: env.contract.address.to_string(),
             receiver: schedule.owner.to_string(),
             token_in: token_in.clone(),
             token_out: token_out.clone(),
-            tick_index_in_to_out: tick_index,
+            // TODO: Fix when neutron_std is fixed
+            tick_index_in_to_out: tick_index_in_to_out,
             amount_in: sell_amount.to_string(),
-            order_type: LimitOrderType::FillOrKill.into(),
+            order_type: LimitOrderType::ImmediateOrCancel.into(),
             expiration_time: None,
+            // TODO: Fix when neutron_std is fixed
             max_amount_out: Int128::MAX.to_string(),
-            limit_sell_price: price.to_string(),
-        };
-         // Create the response with the deposit message
+            limit_sell_price: schedule_price.to_string(),
+        });
+
+        // Create the response with the deposit message
         messages.push(msg_place_limit_order);
     }
+    // Remove marked schedules
+    schedules
+        .schedules
+        .retain(|s| !schedules_to_remove.contains(&s.id));
 
-
-    Ok(Response::<CosmosMsg>::new()
+    // Save the updated config, Config not modified
+    SCHEDULES.save(deps.storage, &schedules)?;
+    Ok(Response::new()
         .add_messages(messages)
         .add_attribute("action", "dex_deposit"))
 }
 
-pub fn dex_withdrawal(
-    deps: DepsMut<NeutronQuery>,
+pub fn withdraw_all(
+    deps: DepsMut,
     _env: Env,
     info: MessageInfo,
-) -> Result<Response<NeutronMsg>, ContractError> {
-    unimplemented!()
-}
-
-
-pub fn withdraw(
-    deps: DepsMut<NeutronQuery>,
-    _env: Env,
-    info: MessageInfo,
-) -> Result<Response<NeutronMsg>, ContractError> {
+) -> Result<Response, ContractError> {
     // Load the contract configuration to access the owner address and balances
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut user_balances = USER_BALANCES.load(deps.storage, &info.sender)?;
-
-    // Verify that the sender is the owner
-    if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+    let config = CONFIG.load(deps.storage)?;
+    let mut schedules = SCHEDULES.load(deps.storage)?;
+    let mut schedules_to_remove: Vec<u128> = vec![];
+    let mut amount_owed: Uint128 = Uint128::zero();
+    // loop over schedules and check if any are owned by the user
+    for schedule in schedules.schedules.iter() {
+        if schedule.owner == info.sender {
+            schedules_to_remove.push(schedule.id);
+            amount_owed += schedule.remaining_amount;
+        }
     }
-
-    // Check if there are any funds to withdraw
-    if user_balances.ntrn.amount.is_zero() && user_balances.usd.amount.is_zero() {
-        return Err(ContractError::NoFundsAvailable {});
-    }
-
-    // Prepare messages to send the entire balance of each token back to the owner
-    let mut messages: Vec<cosmwasm_std::CosmosMsg<NeutronMsg>> = vec![];
-
-    if !user_balances.ntrn.amount.is_zero() {
+    // remove the schedules from the list
+    schedules
+        .schedules
+        .retain(|s| !schedules_to_remove.contains(&s.id));
+    let mut messages: Vec<CosmosMsg> = vec![];
+    // save the schedules
+    SCHEDULES.save(deps.storage, &schedules)?;
+    // send the funds to the owner
+    if !amount_owed.is_zero() {
         messages.push(
             BankMsg::Send {
-                to_address: config.owner.to_string(),
+                to_address: info.sender.to_string(),
                 amount: vec![Coin {
-                    denom: user_balances.ntrn.denom.clone(),
-                    amount: user_balances.ntrn.amount,
+                    denom: config.pair_data.denom_usd.clone(),
+                    amount: amount_owed,
                 }],
             }
             .into(),
         );
     }
-
-    if !user_balances.usd.amount.is_zero() {
-        messages.push(
-            BankMsg::Send {
-                to_address: config.owner.to_string(),
-                amount: vec![Coin {
-                    denom: user_balances.usd.denom.clone(),
-                    amount: user_balances.usd.amount,
-                }],
-            }
-            .into(),
-        );
-    }
-
-    // Reset the balances to zero after withdrawal
-    user_balances.ntrn.amount = Uint128::zero();
-    user_balances.usd.amount = Uint128::zero();
-
-    // Save the updated config (with zeroed balances) back to storage
-    CONFIG.save(deps.storage, &config)?;
-    USER_BALANCES.save(deps.storage, &info.sender, &user_balances)?;
     // Return a successful response with the messages to transfer the funds
-    Ok(Response::<NeutronMsg>::new()
+    Ok(Response::new()
         .add_messages(messages)
-        .add_attribute("action", "withdraw_all")
-        .add_attribute("owner", config.owner.to_string())
-        .add_attribute(
-            "token_0_withdrawn",
-            user_balances.ntrn.amount.to_string(),
-        )
-        .add_attribute(
-            "token_1_withdrawn",
-            user_balances.usd.amount.to_string(),
-        ))
+        .add_attribute("action", "withdraw")
+        .add_attribute("beneficiary", info.sender.to_string())
+        .add_attribute("amount", amount_owed.to_string()))
 }

@@ -1,20 +1,7 @@
-use cosmwasm_std::{Addr, Int64};
-use cw_storage_plus::{Item, Map};
+use cosmwasm_std::Addr;
+use cw_storage_plus::Item;
 use neutron_std::types::slinky::types::v1::CurrencyPair;
-use crate::{
-    error::{ContractError, ContractResult},
-};
-
-// use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Coin, Response, Uint128};
-use neutron_sdk::bindings::marketmap::query::{MarketMapQuery, MarketMapResponse, MarketResponse};
-use neutron_sdk::bindings::{msg::NeutronMsg, query::NeutronQuery};
-
-
-use neutron_sdk::bindings::oracle::query::{
-    GetAllCurrencyPairsResponse, GetPriceResponse, GetPricesResponse, OracleQuery,
-};
-use cosmwasm_std::Uint64;
+use cosmwasm_std::Uint128;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -30,41 +17,41 @@ pub struct PairData {
 /// This structure stores the concentrated pair parameters.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct Balances {
-    pub ntrn: Coin,
-    pub usd: Coin
-}
-
-impl Default for Balances {
-    fn default() -> Self {
-        Self {
-            ntrn: Coin { denom: "untrn".to_string(), amount: Uint128::zero() },
-            usd: Coin { denom: "uusd".to_string(), amount: Uint128::zero() },
-        }
-    }
+pub struct Schedule {
+    // the remaining amount in the schedule
+    pub remaining_amount: Uint128,
+    // owner and beneficiary of the schedule
+    pub owner: Addr,
+    // the max amount of the usd_denom to sell per schedule run
+    pub max_sell_amount: Uint128,
+    // the max slippage in basis points the schedule owner is willing to accept
+    pub max_slippage_basis_points: u128,
+    // the unique id of the schedule
+    pub id: u128,
 }
 /// This structure stores the concentrated pair parameters.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct Schedule {
-    pub owner: Addr,
-    pub denom: String,
-    pub max_sell_amount: Uint128,
-    pub max_slippage_basis_points: u16,
+pub struct Schedules {
+    // vec of all active schedules
+    pub schedules: Vec<Schedule>,
+    // global schedules nonce used to set unique IDs
+    pub nonce: u128,
 }
 
 /// This structure stores the concentrated pair parameters.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Config {
-    /// number of blocks until price is stale
     pub pair_data: PairData,
+    // the max blocks old for the oracle price
     pub max_blocks_old: u64,
+    // the owner of the contract
     pub owner: Addr,
-    pub schedules: Vec<Schedule>,
+    // the max number of schedules
     pub max_schedules: u64,
 }
 
 // pub const PAIRDATA: Item<PairData> = Item::new("data");
 pub const CONFIG: Item<Config> = Item::new("data");
-pub const USER_BALANCES: Map<&Addr, Balances> = Map::new("user_balances");
+pub const SCHEDULES: Item<Schedules> = Item::new("user_schedules");

@@ -1,76 +1,50 @@
 use std::str::FromStr;
 
-use crate::error::ContractError;
-use crate::msg::{
-    CombinedPriceResponse, DepositResult, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg,
-};
-use crate::state::{Config, PairData, Balances, CONFIG};
-use cosmwasm_std::{
-    attr, entry_point, to_json_binary, BalanceResponse, BankQuery, Binary, Coin, CosmosMsg,
-    Decimal, Deps, DepsMut, Env, Fraction, Int128, MessageInfo, QueryRequest, Response, StdResult,
-    Uint128, Uint64, Addr,
-};
-use cw2::set_contract_version;
-use serde::{Deserialize, Serialize};
-
-pub type ContractResult<T> = core::result::Result<T, ContractError>;
-
-use neutron_sdk::bindings::{msg::NeutronMsg, query::NeutronQuery};
-use neutron_std::types::slinky::marketmap::v1::{
-    MarketMap, MarketMapRequest, MarketMapResponse, MarketRequest, MarketResponse,
+use crate::error::{ContractError, ContractResult};
+use crate::state::CONFIG;
+use cosmwasm_std::{Decimal, Deps, Env, Int128, Response};
+use neutron_std::types::neutron::dex::DexQuerier;
+use neutron_std::types::slinky::{
+    marketmap::v1::{MarketMap, MarketResponse, MarketmapQuerier},
+    oracle::v1::{GetAllCurrencyPairsResponse, GetPriceResponse, OracleQuerier},
+    types::v1::CurrencyPair,
 };
 
-use neutron_std::types::slinky::oracle::v1::{
-    GetAllCurrencyPairsRequest, GetAllCurrencyPairsResponse, GetPriceRequest, GetPriceResponse,
-};
-use neutron_std::types::slinky::types::v1::CurrencyPair;
-use neutron_std::types::slinky::oracle::v1::OracleQuerier;
-use neutron_std::types::slinky::marketmap::v1::MarketmapQuerier;
-
-pub fn load_config(deps: Deps<NeutronQuery>) -> StdResult<Config> {
-    CONFIG.load(deps.storage)
-}
-
-pub fn get_pair_id_str(token0: &str, token1: &str) -> (String) {
-    let mut tokens = [token0.clone(), token1.clone()];
+pub fn get_pair_id_str(token0: &str, token1: &str) -> String {
+    let mut tokens = [token0, token1];
     if token1 < token0 {
         tokens.reverse();
     }
-    [tokens[0].clone(), tokens[1].clone()].join("<>")
+    [tokens[0], tokens[1]].join("<>")
 }
 
-pub fn query_oracle_price(
-    deps: &Deps<NeutronQuery>,
-    pair: &CurrencyPair,
-) -> ContractResult<GetPriceResponse> {
+pub fn query_oracle_price(deps: &Deps, pair: &CurrencyPair) -> ContractResult<GetPriceResponse> {
     let querier = OracleQuerier::new(&deps.querier);
     let price: GetPriceResponse = querier.get_price(Some(pair.clone()))?;
     Ok(price)
 }
 
-pub fn query_marketmap_market(
-    deps: &Deps<NeutronQuery>,
-    pair: &CurrencyPair,
-) -> ContractResult<MarketResponse> {
+pub fn query_marketmap_market(deps: &Deps, pair: &CurrencyPair) -> ContractResult<MarketResponse> {
     let querier = MarketmapQuerier::new(&deps.querier);
     let market_response: MarketResponse = querier.market(Some(pair.clone()))?;
     Ok(market_response)
 }
 
-pub fn query_oracle_currency_pairs(deps: &Deps<NeutronQuery>) -> ContractResult<Vec<CurrencyPair>> {
+pub fn query_oracle_currency_pairs(deps: &Deps) -> ContractResult<Vec<CurrencyPair>> {
     let querier = OracleQuerier::new(&deps.querier);
-    let oracle_currency_pairs_response: GetAllCurrencyPairsResponse = querier.get_all_currency_pairs()?;
+    let oracle_currency_pairs_response: GetAllCurrencyPairsResponse =
+        querier.get_all_currency_pairs()?;
     Ok(oracle_currency_pairs_response.currency_pairs)
 }
 
-pub fn query_marketmap_market_map(deps: &Deps<NeutronQuery>) -> ContractResult<MarketMap> {
+pub fn query_marketmap_market_map(deps: &Deps) -> ContractResult<MarketMap> {
     let querier = MarketmapQuerier::new(&deps.querier);
     let marketmap_currency_pairs_response = querier.market_map()?;
     Ok(marketmap_currency_pairs_response.market_map.unwrap())
 }
 
 pub fn validate_market(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     env: &Env,
     pair: &CurrencyPair,
     max_blocks_old: u64,
@@ -92,7 +66,7 @@ pub fn validate_market(
 }
 
 pub fn validate_price_recent(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     env: &Env,
     pair: &CurrencyPair,
     max_blocks_old: u64,
@@ -122,7 +96,7 @@ pub fn validate_price_recent(
 }
 
 pub fn validate_market_enabled(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     pair: &CurrencyPair,
     marketmap_market_response: Option<MarketResponse>,
 ) -> ContractResult<Response> {
@@ -146,7 +120,7 @@ pub fn validate_market_enabled(
 }
 
 pub fn validate_market_supported_xoracle(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     pair: &CurrencyPair,
     oracle_currency_pairs: Option<Vec<CurrencyPair>>,
 ) -> ContractResult<Response> {
@@ -167,7 +141,7 @@ pub fn validate_market_supported_xoracle(
 }
 
 pub fn validate_market_supported_xmarketmap(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     pair: &CurrencyPair,
     market_map: Option<MarketMap>,
 ) -> ContractResult<Response> {
@@ -188,7 +162,7 @@ pub fn validate_market_supported_xmarketmap(
 }
 
 pub fn validate_price_not_nil(
-    deps: &Deps<NeutronQuery>,
+    deps: &Deps,
     pair: &CurrencyPair,
     oracle_price_response: Option<GetPriceResponse>,
 ) -> ContractResult<Response> {
@@ -207,8 +181,8 @@ pub fn validate_price_not_nil(
 }
 
 // Get price of NTRN in USD
-pub fn get_price(deps: Deps<NeutronQuery>, env: Env) -> ContractResult<Decimal> {
-    let config = load_config(deps)?;
+pub fn get_price(deps: Deps, env: Env) -> ContractResult<Decimal> {
+    let config = CONFIG.load(deps.storage)?;
     let pair: CurrencyPair = config.pair_data.currency_pair;
 
     // Query the oracle for the price
@@ -240,25 +214,7 @@ pub fn normalize_price(price: Int128, decimals: u64) -> ContractResult<Decimal> 
     }
     let abs_value: u128 = price.i128().abs() as u128;
     Decimal::from_atomics(abs_value, decimals as u32)
-        .map_err(|e| ContractError::DecimalConversionError)
-}
-
-pub fn get_user_balance(
-    deps: &DepsMut<NeutronQuery>,
-    denom: String,
-    owner: Addr,
-) -> Result<Uint128, ContractError> {
-    let config: Config = load_config(deps.as_ref())?;
-
-    let balance_request = QueryRequest::Bank(BankQuery::Balance {
-        address: owner.to_string(),
-        denom: denom.clone(),
-    });
-
-    // Query the balance for the specified denom
-    let balance_resp: BalanceResponse = deps.querier.query(&balance_request)?;
-
-    Ok(balance_resp.amount.amount)
+        .map_err(|_e| ContractError::DecimalConversionError)
 }
 
 pub fn price_to_tick_index(price: Decimal) -> Result<i64, ContractError> {

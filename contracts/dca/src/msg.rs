@@ -1,19 +1,6 @@
-use crate::{
-    error::{ContractError, ContractResult},
-    state::PairData,
-};
-use cosmwasm_std::{Addr, Int64};
-
-// use cosmwasm_schema::{cw_serde, QueryResponses};
+use crate::error::{ContractError, ContractResult};
+use cosmwasm_std::Addr;
 use cosmwasm_std::{Coin, Decimal, Response, Uint128};
-use neutron_sdk::bindings::marketmap::query::{MarketMapQuery, MarketMapResponse, MarketResponse};
-use neutron_sdk::bindings::oracle::types::CurrencyPair;
-use neutron_sdk::bindings::{msg::NeutronMsg, query::NeutronQuery};
-
-use cosmwasm_std::Uint64;
-use neutron_sdk::bindings::oracle::query::{
-    GetAllCurrencyPairsResponse, GetPriceResponse, GetPricesResponse, OracleQuery,
-};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -89,20 +76,7 @@ impl InstantiateMsg {
         }
         Ok(Response::new())
     }
-    fn validate_currency_pair(pair: &CurrencyPair) -> ContractResult<Response> {
-        let invalid_pair = |reason: &str| {
-            Err(ContractError::InvalidCurrencyPair {
-                base: String::from(&pair.base),
-                quote: String::from(&pair.quote),
-                reason: reason.to_string(),
-            })
-        };
-        // Check if base is NTRN and quote is USD
-        if pair.base != "NTRN" || pair.quote != "USD" {
-            return invalid_pair("base must be NTRN and quote must be USD");
-        }
-        Ok(Response::new())
-    }
+
     pub fn check_empty(&self, input: String, kind: String) -> ContractResult<()> {
         if input.is_empty() {
             return Err(ContractError::EmptyValue { kind: kind });
@@ -115,18 +89,18 @@ impl InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     // deposit funds to be DCA's
-    Deposit_dca {max_sell_amount: Uint128, max_slippage_basis_points: u16},
+    DepositDca {max_sell_amount: Uint128, max_slippage_basis_points: u128},
     // withdraws any remaining funds form the DCA strategy
-    Withdraw_dca {},
+    WithdrawAll {},
     // withdraws any remaining funds form the DCA strategy
-    Run_schedule {},
+    RunSchedule {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     GetFormated {},
-    getBalances {
+    GetSchedules {
         address: Addr
     },
 }
