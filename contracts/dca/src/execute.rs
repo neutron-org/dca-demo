@@ -124,9 +124,9 @@ pub fn run_schedule(
         }
 
         // update the schedule's remaining amount
-        if sell_amount < current_schedule_balance {
-            schedule.remaining_amount -= sell_amount;
-        } else if sell_amount == current_schedule_balance {
+        if estimated_input_amount < current_schedule_balance {
+            schedule.remaining_amount -= estimated_input_amount;
+        } else if estimated_input_amount == current_schedule_balance {
             schedule.remaining_amount = Uint128::zero();
             //remove the schedule from the list
             schedules_to_remove.push(schedule.id);
