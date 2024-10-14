@@ -100,7 +100,7 @@ pub fn run_schedule(
         //increase target sell price by the basis point adjustement
         let schedule_price = price + basis_point_adjustement;
 
-        // TODO: Fix when entrind_std is updated. We normally only need the price for limit orders, but Neutron_STD doesn't work with 
+        // TODO: Fix when neutron_std is updated. We normally only need the price for limit orders, but Neutron_STD doesn't work with 
         // nullible feilds properly so we must also provide the tick index.
         let tick_index_in_to_out = price_to_tick_index(schedule_price)?;
 
