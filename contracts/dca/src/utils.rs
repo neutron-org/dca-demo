@@ -3,7 +3,6 @@ use std::str::FromStr;
 use crate::error::{ContractError, ContractResult};
 use crate::state::CONFIG;
 use cosmwasm_std::{Decimal, Deps, Env, Int128, Response};
-use neutron_std::types::neutron::dex::DexQuerier;
 use neutron_std::types::slinky::{
     marketmap::v1::{MarketMap, MarketResponse, MarketmapQuerier},
     oracle::v1::{GetAllCurrencyPairsResponse, GetPriceResponse, OracleQuerier},
