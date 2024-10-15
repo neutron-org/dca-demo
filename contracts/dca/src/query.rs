@@ -1,14 +1,9 @@
 use crate::error::ContractResult;
 use crate::state::SCHEDULES;
 use crate::utils::*;
-use cosmwasm_std::{
-    to_json_binary, Binary, Deps, Env, Decimal, Addr
-};
+use cosmwasm_std::{to_json_binary, Addr, Binary, Decimal, Deps, Env};
 
-pub fn query_recent_valid_prices_formatted(
-    deps: Deps,
-    env: Env,
-) -> ContractResult<Binary> {
+pub fn query_recent_valid_prices_formatted(deps: Deps, env: Env) -> ContractResult<Binary> {
     let price: Decimal = get_price(deps, env)?;
 
     return Ok(to_json_binary(&price)?);
@@ -25,4 +20,3 @@ pub fn get_schedules(deps: Deps, _env: Env, sender: &Addr) -> ContractResult<Bin
 
     Ok(to_json_binary(&user_schedules)?)
 }
-

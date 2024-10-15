@@ -1,7 +1,7 @@
 use cosmwasm_std::Addr;
+use cosmwasm_std::Uint128;
 use cw_storage_plus::Item;
 use neutron_std::types::slinky::types::v1::CurrencyPair;
-use cosmwasm_std::Uint128;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

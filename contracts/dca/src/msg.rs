@@ -89,7 +89,10 @@ impl InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     // deposit funds to be DCA's
-    DepositDca {max_sell_amount: Uint128, max_slippage_basis_points: u128},
+    DepositDca {
+        max_sell_amount: Uint128,
+        max_slippage_basis_points: u128,
+    },
     // withdraws any remaining funds form the DCA strategy
     WithdrawAll {},
     // withdraws any remaining funds form the DCA strategy
@@ -100,9 +103,7 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     GetFormated {},
-    GetSchedules {
-        address: Addr
-    },
+    GetSchedules { address: Addr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

@@ -2,15 +2,11 @@ use crate::error::{ContractError, ContractResult};
 use crate::execute::*;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::query::*;
-use crate::state::{Config, PairData, CONFIG, SCHEDULES, Schedules };
+use crate::state::{Config, PairData, Schedules, CONFIG, SCHEDULES};
 use crate::utils::*;
-use cosmwasm_std::{
-    attr, entry_point, Binary, Deps, DepsMut, Env, MessageInfo,
-    Response, Reply
-};
+use cosmwasm_std::{attr, entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response};
 use cw2::set_contract_version;
 use neutron_std::types::slinky::types::v1::CurrencyPair;
-
 
 ///////////////
 /// MIGRATE ///
@@ -98,7 +94,10 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::DepositDca { max_sell_amount, max_slippage_basis_points } => deposit_dca(deps, _env, info, max_sell_amount, max_slippage_basis_points),
+        ExecuteMsg::DepositDca {
+            max_sell_amount,
+            max_slippage_basis_points,
+        } => deposit_dca(deps, _env, info, max_sell_amount, max_slippage_basis_points),
         ExecuteMsg::RunSchedule { .. } => run_schedule(deps, _env),
         ExecuteMsg::WithdrawAll { .. } => withdraw_all(deps, _env, info),
     }
@@ -116,11 +115,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> ContractResult<Binary> {
     }
 }
 
-
 /////////////
 /// REPLY ///
 /////////////
-
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {

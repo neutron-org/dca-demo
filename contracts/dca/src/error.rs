@@ -19,7 +19,7 @@ pub enum ContractError {
 
     #[error("User has an active schedule already.")]
     ExistingBalance,
-    
+
     #[error("Failed to decode response data")]
     DecodingError,
 
@@ -28,7 +28,7 @@ pub enum ContractError {
 
     #[error("Expected Schadule, but not found")]
     ScheduleNotFound,
-    
+
     #[error("denom {denom} is not a correct IBC denom: {reason}")]
     InvalidIbcDenom { denom: String, reason: String },
 
@@ -39,7 +39,9 @@ pub enum ContractError {
         reason: String,
     },
 
-    #[error("limit order execution used: {requested} usd, but owner only has: {available} available")]
+    #[error(
+        "limit order execution used: {requested} usd, but owner only has: {available} available"
+    )]
     InsufficientLiquidity {
         requested: Uint128,
         available: Uint128,

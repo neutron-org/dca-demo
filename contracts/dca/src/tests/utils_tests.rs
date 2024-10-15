@@ -1,10 +1,8 @@
-use std::str::FromStr;
 use crate::error::ContractError;
-use test_case::test_case;
 use crate::utils::{normalize_price, price_to_tick_index};
 use cosmwasm_std::{Decimal, Int128};
-
-
+use std::str::FromStr;
+use test_case::test_case;
 
 #[test_case(Decimal::from_str("123456791234567.000000000000000000").unwrap() => -324485; "large positive number with decimals")]
 #[test_case(Decimal::from_str("123456791234567").unwrap() => -324485; "large positive number without decimals")]
