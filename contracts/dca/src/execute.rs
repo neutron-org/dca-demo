@@ -47,8 +47,8 @@ pub fn deposit_dca(
     // Create a new schedule for the user
     let new_schedule = Schedule {
         owner: info.sender.clone(),
-        max_sell_amount: max_sell_amount,
-        max_slippage_basis_points: max_slippage_basis_points,
+        max_sell_amount,
+        max_slippage_basis_points,
         remaining_amount: sent_funds[0].amount,
         id: schedules.nonce,
     };
@@ -64,11 +64,11 @@ pub fn deposit_dca(
         .add_attribute("amount", sent_funds[0].amount.to_string()))
 }
 
-pub fn run_schedule(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+pub fn run_schedules(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut schedules = SCHEDULES.load(deps.storage)?;
 
-    let mut messages: Vec<SubMsg> = vec![];
+    let mut submessages: Vec<SubMsg> = vec![];
     let mut schedules_to_remove: Vec<u128> = vec![];
 
     // get the current slinky price and tick index.
@@ -92,10 +92,10 @@ pub fn run_schedule(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
         );
 
         // the schedule_price is the price with the slippage_adjustment applied
-        let basis_point_adjustement =
+        let basis_point_adjustment =
             price + Decimal::from_ratio(schedule.max_slippage_basis_points, 10000u128);
-        //increase target sell price by the basis point adjustement
-        let schedule_price = price + basis_point_adjustement;
+        //increase target sell price by the basis point adjustment
+        let schedule_price = price + basis_point_adjustment;
         let target_tick_index = price_to_tick_index(schedule_price);
 
         // place an IMMEDIATE_OR_CANCEL limit order. This will sell as much as it can at the price
@@ -115,7 +115,7 @@ pub fn run_schedule(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
         });
 
         // push SubMsg
-        messages.push(SubMsg::reply_on_success(
+        submessages.push(SubMsg::reply_on_success(
             msg_place_limit_order,
             schedule.id as u64,
         ));
@@ -128,7 +128,7 @@ pub fn run_schedule(deps: DepsMut, env: Env) -> Result<Response, ContractError> 
     // Save the updated config, Config not modified
     SCHEDULES.save(deps.storage, &schedules)?;
     Ok(Response::new()
-        .add_submessages(messages)
+        .add_submessages(submessages)
         .add_attribute("action", "dex_deposit"))
 }
 

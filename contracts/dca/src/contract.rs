@@ -98,7 +98,7 @@ pub fn execute(
             max_sell_amount,
             max_slippage_basis_points,
         } => deposit_dca(deps, _env, info, max_sell_amount, max_slippage_basis_points),
-        ExecuteMsg::RunSchedule { .. } => run_schedule(deps, _env),
+        ExecuteMsg::RunSchedules { .. } => run_schedules(deps, _env),
         ExecuteMsg::WithdrawAll { .. } => withdraw_all(deps, _env, info),
     }
 }

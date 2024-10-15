@@ -95,8 +95,8 @@ pub enum ExecuteMsg {
     },
     // withdraws any remaining funds form the DCA strategy
     WithdrawAll {},
-    // withdraws any remaining funds form the DCA strategy
-    RunSchedule {},
+    // runs the registered user schedules
+    RunSchedules {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
