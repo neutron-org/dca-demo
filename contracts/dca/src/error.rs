@@ -20,6 +20,15 @@ pub enum ContractError {
     #[error("User has an active schedule already.")]
     ExistingBalance,
     
+    #[error("Failed to decode response data")]
+    DecodingError,
+
+    #[error("No response data from place limit order")]
+    NoResponseData,
+
+    #[error("Expected Schadule, but not found")]
+    ScheduleNotFound,
+    
     #[error("denom {denom} is not a correct IBC denom: {reason}")]
     InvalidIbcDenom { denom: String, reason: String },
 

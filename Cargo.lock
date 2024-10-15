@@ -12,6 +12,8 @@ dependencies = [
  "cw2",
  "neutron-sdk",
  "neutron-std",
+ "prost",
+ "prost-types",
  "schemars",
  "serde",
  "serde_json",

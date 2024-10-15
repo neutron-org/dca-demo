@@ -1,11 +1,15 @@
 use crate::error::ContractError;
 use crate::state::{Schedule, CONFIG, SCHEDULES};
 use crate::utils::*;
-use cosmwasm_std::{BankMsg, SubMsgResult, SubMsgResponse, Binary, Coin, Decimal, Reply, SubMsg, ReplyOn, CosmosMsg, DepsMut, Env, Int128, MessageInfo, Response, Uint128};
-use neutron_std::types::neutron::dex::{LimitOrderType, MsgPlaceLimitOrder};
-use neutron_std::types::neutron::dex::DexQuerier;
+use cosmwasm_std::{
+    BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
+    Response, SubMsg, SubMsgResult, Uint128,
+};
+use neutron_std::types::neutron::dex::{
+    LimitOrderType, MsgPlaceLimitOrder
+};
 
-// Deposits a DCA schedule. Users can deposit multiple times to create multiple schedules 
+// Deposits a DCA schedule. Users can deposit multiple times to create multiple schedules
 // but there is a limit to the total number of schedules
 // Only allows DCA buys from USD to NTRN, so only USD_denom can be deposited
 pub fn deposit_dca(
@@ -62,18 +66,14 @@ pub fn deposit_dca(
         .add_attribute("amount", sent_funds[0].amount.to_string()))
 }
 
-pub fn run_schedule(
-    deps: DepsMut,
-    env: Env,
-) -> Result<Response, ContractError> {
-    
+pub fn run_schedule(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut schedules = SCHEDULES.load(deps.storage)?;
 
     let mut messages: Vec<SubMsg> = vec![];
     let mut schedules_to_remove: Vec<u128> = vec![];
 
-    // get the current slinky price and tick index. 
+    // get the current slinky price and tick index.
     let price = get_price(deps.as_ref(), env.clone())?;
 
     // Loop over all schedules
@@ -85,7 +85,7 @@ pub fn run_schedule(
             schedules_to_remove.push(schedule.id);
             continue;
         }
- 
+
         // sell amount is the min of the current schedule balance and the max_sell_amount
         let sell_amount = std::cmp::min(current_schedule_balance, schedule.max_sell_amount);
         let (token_in, token_out) = (
@@ -95,9 +95,11 @@ pub fn run_schedule(
 
         // the schedule_price is the price with the slippage_adjustment applied
         // TODO check price for directionality when neutron_std is fixed
-        let basis_point_adjustement = price + Decimal::from_ratio(schedule.max_slippage_basis_points, 10000 as u128);
+        let basis_point_adjustement =
+            price + Decimal::from_ratio(schedule.max_slippage_basis_points, 10000 as u128);
         //increase target sell price by the basis point adjustement
         let schedule_price = price + basis_point_adjustement;
+        let target_tick_index = price_to_tick_index(schedule_price);
         // place an IMMEDIATE_OR_CANCEL limit order. This will sell as much as it can at the price
         // if the price changes before the order is filled the order will be cancelled
         let msg_place_limit_order = Into::<CosmosMsg>::into(MsgPlaceLimitOrder {
@@ -105,17 +107,20 @@ pub fn run_schedule(
             receiver: schedule.owner.to_string(),
             token_in: token_in.clone(),
             token_out: token_out.clone(),
-            tick_index_in_to_out: 0,
+            tick_index_in_to_out: target_tick_index.unwrap(),
             amount_in: sell_amount.to_string(),
             order_type: LimitOrderType::ImmediateOrCancel.into(),
             expiration_time: None,
             min_average_sell_price: None,
             max_amount_out: None,
-            limit_sell_price: Some(schedule_price.to_string()),
+            limit_sell_price: None,
         });
 
         // push SubMsg
-        messages.push(SubMsg::reply_on_success(msg_place_limit_order, schedule.id as u64));
+        messages.push(SubMsg::reply_on_success(
+            msg_place_limit_order,
+            schedule.id as u64,
+        ));
     }
     // Remove marked schedules
     schedules
@@ -134,26 +139,24 @@ pub fn withdraw_all(
     _env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
-    // Load the contract configuration to access the owner address and balances
     let config = CONFIG.load(deps.storage)?;
     let mut schedules = SCHEDULES.load(deps.storage)?;
-    let mut schedules_to_remove: Vec<u128> = vec![];
     let mut amount_owed: Uint128 = Uint128::zero();
-    // loop over schedules and check if any are owned by the user
-    for schedule in schedules.schedules.iter() {
+
+    // Use retain to remove schedules and calculate amount owed in one pass
+    schedules.schedules.retain(|schedule| {
         if schedule.owner == info.sender {
-            schedules_to_remove.push(schedule.id);
             amount_owed += schedule.remaining_amount;
+            false // Remove this schedule
+        } else {
+            true // Keep this schedule
         }
-    }
-    // remove the schedules from the list
-    schedules
-        .schedules
-        .retain(|s| !schedules_to_remove.contains(&s.id));
-    let mut messages: Vec<CosmosMsg> = vec![];
-    // save the schedules
+    });
+
+    // Save the updated schedules
     SCHEDULES.save(deps.storage, &schedules)?;
-    // send the funds to the owner
+
+    let mut messages: Vec<CosmosMsg> = vec![];
     if !amount_owed.is_zero() {
         messages.push(
             BankMsg::Send {
@@ -166,7 +169,7 @@ pub fn withdraw_all(
             .into(),
         );
     }
-    // Return a successful response with the messages to transfer the funds
+
     Ok(Response::new()
         .add_messages(messages)
         .add_attribute("action", "withdraw")
@@ -174,25 +177,32 @@ pub fn withdraw_all(
         .add_attribute("amount", amount_owed.to_string()))
 }
 
-pub fn handle_place_limit_order_reply(
+
+pub fn handle_run_schedule_reply(
     deps: DepsMut,
     _env: Env,
     msg_result: SubMsgResult,
     schedule_id: u64,
 ) -> Result<Response, ContractError> {
     match msg_result {
-        SubMsgResult::Ok(result) => {
+        SubMsgResult::Ok(result) => {            
+            let amount_in = extract_amount_in(&result)?;
+            let mut schedules = SCHEDULES.load(deps.storage)?;
+            
+            update_schedules(&mut schedules, schedule_id, amount_in)?;
+            
+            SCHEDULES.save(deps.storage, &schedules)?;
+            
             Ok(Response::new()
-            .add_attribute("action", "place_limit_order_reply_success")
-            .add_attribute("schedule_id", schedule_id.to_string())
-            )
+                .add_attribute("action", "place_limit_order_reply_success")
+                .add_attribute("schedule_id", schedule_id.to_string())
+                .add_attribute("amount_in", amount_in.to_string()))
         }
         SubMsgResult::Err(err) => {
-            // On failure, we gracefully stop execution without consuming more gas
-            return Ok(Response::new()
+            Ok(Response::new()
                 .add_attribute("action", "place_limit_order_reply_error")
                 .add_attribute("error", err)
-                .add_attribute("schedule_id", schedule_id.to_string()));
+                .add_attribute("schedule_id", schedule_id.to_string()))
         }
     }
 }

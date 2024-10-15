@@ -125,6 +125,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> ContractResult<Binary> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match msg.id {
-        id => handle_place_limit_order_reply(deps, env, msg.result, id),
+        id => handle_run_schedule_reply(deps, env, msg.result, id),
     }
 }

@@ -1,13 +1,15 @@
 use std::str::FromStr;
 
 use crate::error::{ContractError, ContractResult};
-use crate::state::CONFIG;
-use cosmwasm_std::{Decimal, Deps, Env, Int128, Response};
+use crate::state::{CONFIG, Schedules};
+use cosmwasm_std::{Decimal, Deps, Env, Int128, Response, SubMsgResponse, Uint128};
 use neutron_std::types::slinky::{
     marketmap::v1::{MarketMap, MarketResponse, MarketmapQuerier},
     oracle::v1::{GetAllCurrencyPairsResponse, GetPriceResponse, OracleQuerier},
     types::v1::CurrencyPair,
 };
+use neutron_std::types::neutron::dex::MsgPlaceLimitOrderResponse;
+use prost::Message;
 
 pub fn get_pair_id_str(token0: &str, token1: &str) -> String {
     let mut tokens = [token0, token1];
@@ -236,4 +238,38 @@ pub fn price_to_tick_index(price: Decimal) -> Result<i64, ContractError> {
 
     // Convert the tick index to i64, rounding to the nearest integer
     Ok(tick_index.round() as i64)
+}
+
+pub fn extract_amount_in(result: &SubMsgResponse) -> Result<Uint128, ContractError> {
+    let response_data = result.msg_responses.get(0)
+        .ok_or(ContractError::NoResponseData)?
+        .value
+        .clone();
+    
+    MsgPlaceLimitOrderResponse::decode(response_data.as_slice())
+        .map_err(|_| ContractError::DecodingError)?
+        .taker_coin_in
+        .and_then(|coin| coin.amount.parse::<Uint128>().ok())
+        .ok_or(ContractError::DecodingError)
+}
+
+pub fn update_schedules(schedules: &mut Schedules, schedule_id: u64, amount_in: Uint128) -> Result<(), ContractError> {
+    let schedule = schedules.schedules.iter_mut()
+        .find(|s| s.id == schedule_id as u128)
+        .ok_or(ContractError::ScheduleNotFound)?;
+
+    if amount_in > schedule.remaining_amount {
+        return Err(ContractError::InsufficientLiquidity {
+            requested: schedule.remaining_amount,
+            available: amount_in,
+        });
+    }
+
+    schedule.remaining_amount -= amount_in;
+
+    if schedule.remaining_amount.is_zero() {
+        schedules.schedules.retain(|s| s.id != schedule_id as u128);
+    }
+
+    Ok(())
 }
