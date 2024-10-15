@@ -743,15 +743,14 @@ dependencies = [
 [[package]]
 name = "neutron-std"
 version = "4.2.2-rc"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea7d51a6eb54c2f550bb01630c8414b1988899d645e076d8ae52c068999b9951"
+source = "git+https://github.com/neutron-org/neutron-std?branch=feat/respect-gogoproto-nullable#840ec1a23c775541685939558f2504f985607e3f"
 dependencies = [
  "bech32 0.9.1",
  "chrono",
  "cosmos-sdk-proto",
  "cosmwasm-schema",
  "cosmwasm-std",
- "neutron-std-derive 0.20.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "neutron-std-derive 0.20.1 (git+https://github.com/neutron-org/neutron-std?branch=feat/respect-gogoproto-nullable)",
  "prost",
  "prost-types",
  "protobuf",
@@ -768,8 +767,7 @@ dependencies = [
 [[package]]
 name = "neutron-std-derive"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f4948005dcbb0c4eb644141d00dcbdc422b1b7024fb008712ca2960392ec11"
+source = "git+https://github.com/neutron-org/neutron-std?branch=feat/respect-gogoproto-nullable#840ec1a23c775541685939558f2504f985607e3f"
 dependencies = [
  "itertools 0.10.5",
  "proc-macro2",

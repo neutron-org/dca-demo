@@ -6,7 +6,7 @@ use crate::state::{Config, PairData, CONFIG, SCHEDULES, Schedules };
 use crate::utils::*;
 use cosmwasm_std::{
     attr, entry_point, Binary, Deps, DepsMut, Env, MessageInfo,
-    Response,
+    Response, Reply
 };
 use cw2::set_contract_version;
 use neutron_std::types::slinky::types::v1::CurrencyPair;
@@ -113,5 +113,18 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> ContractResult<Binary> {
     match msg {
         QueryMsg::GetFormated {} => query_recent_valid_prices_formatted(deps, _env),
         QueryMsg::GetSchedules { address } => get_schedules(deps, _env, &address),
+    }
+}
+
+
+/////////////
+/// REPLY ///
+/////////////
+
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
+    match msg.id {
+        id => handle_place_limit_order_reply(deps, env, msg.result, id),
     }
 }

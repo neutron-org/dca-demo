@@ -21,10 +21,11 @@ overflow-checks = true
 
 [workspace.dependencies]
 neutron-sdk = { git = "https://github.com/neutron-org/neutron-sdk", branch = "main" }
-neutron-std = "4.2.2-rc"
+neutron-std = { git = "https://github.com/neutron-org/neutron-std", branch = "feat/respect-gogoproto-nullable" }
 prost = "0.12.4"
 prost-types = "0.12.4"
 cosmos-sdk-proto = { version = "0.20.0", default-features = false }
+
 cosmwasm-std = { version = "2.1.0", features = [
     "stargate",
     "staking",

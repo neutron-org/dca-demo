@@ -1,7 +1,7 @@
 use crate::error::ContractError;
 use crate::state::{Schedule, CONFIG, SCHEDULES};
 use crate::utils::*;
-use cosmwasm_std::{BankMsg, Coin, Decimal, CosmosMsg, DepsMut, Env, Int128, MessageInfo, Response, Uint128};
+use cosmwasm_std::{BankMsg, SubMsgResult, SubMsgResponse, Binary, Coin, Decimal, Reply, SubMsg, ReplyOn, CosmosMsg, DepsMut, Env, Int128, MessageInfo, Response, Uint128};
 use neutron_std::types::neutron::dex::{LimitOrderType, MsgPlaceLimitOrder};
 use neutron_std::types::neutron::dex::DexQuerier;
 
@@ -70,9 +70,8 @@ pub fn run_schedule(
     let config = CONFIG.load(deps.storage)?;
     let mut schedules = SCHEDULES.load(deps.storage)?;
 
-    let mut messages: Vec<CosmosMsg> = vec![];
+    let mut messages: Vec<SubMsg> = vec![];
     let mut schedules_to_remove: Vec<u128> = vec![];
-    let querier = DexQuerier::new(&deps.querier);
 
     // get the current slinky price and tick index. 
     let price = get_price(deps.as_ref(), env.clone())?;
@@ -96,49 +95,9 @@ pub fn run_schedule(
 
         // the schedule_price is the price with the slippage_adjustment applied
         // TODO check price for directionality when neutron_std is fixed
-        let basis_point_adjustement = price * Decimal::from_ratio(schedule.max_slippage_basis_points, 10000 as u128);
+        let basis_point_adjustement = price + Decimal::from_ratio(schedule.max_slippage_basis_points, 10000 as u128);
         //increase target sell price by the basis point adjustement
         let schedule_price = price + basis_point_adjustement;
-
-        // TODO: Fix when neutron_std is updated. We normally only need the price for limit orders, but Neutron_STD doesn't work with 
-        // nullible feilds properly so we must also provide the tick index.
-        let tick_index_in_to_out = price_to_tick_index(schedule_price)?;
-
-        let estimated_input_amount: Uint128 = match querier.estimate_place_limit_order(
-            env.contract.address.to_string(),
-            schedule.owner.to_string(),
-            token_in.clone(),
-            token_out.clone(),
-            tick_index_in_to_out,
-            sell_amount.to_string(),
-            LimitOrderType::ImmediateOrCancel.into(),
-            None,
-            Int128::MAX.to_string()) {
-                Ok(amount) => amount.swap_in_coin.unwrap().amount.parse::<Uint128>().unwrap(),
-                Err(_) => Uint128::zero(),
-            };
-
-        // if the estimated amount swapped is zero it means that there was no usable liquidity at the price, so we don't include the message
-        if estimated_input_amount == Uint128::zero() {
-            continue;
-        }
-
-        // update the schedule's remaining amount
-        if estimated_input_amount < current_schedule_balance {
-            schedule.remaining_amount -= estimated_input_amount;
-        } else if estimated_input_amount == current_schedule_balance {
-            schedule.remaining_amount = Uint128::zero();
-            //remove the schedule from the list
-            schedules_to_remove.push(schedule.id);
-        }
-        else{
-            //if somehow the amount sold is greater than the user's balance, stop all other executions and error
-            return Err(ContractError::InsufficientLiquidity {
-                requested: current_schedule_balance,
-                available: sell_amount,
-            });
-        }
-
         // place an IMMEDIATE_OR_CANCEL limit order. This will sell as much as it can at the price
         // if the price changes before the order is filled the order will be cancelled
         let msg_place_limit_order = Into::<CosmosMsg>::into(MsgPlaceLimitOrder {
@@ -146,18 +105,17 @@ pub fn run_schedule(
             receiver: schedule.owner.to_string(),
             token_in: token_in.clone(),
             token_out: token_out.clone(),
-            // TODO: Fix when neutron_std is fixed
-            tick_index_in_to_out: tick_index_in_to_out,
+            tick_index_in_to_out: 0,
             amount_in: sell_amount.to_string(),
             order_type: LimitOrderType::ImmediateOrCancel.into(),
             expiration_time: None,
-            // TODO: Fix when neutron_std is fixed
-            max_amount_out: Int128::MAX.to_string(),
-            limit_sell_price: schedule_price.to_string(),
+            min_average_sell_price: None,
+            max_amount_out: None,
+            limit_sell_price: Some(schedule_price.to_string()),
         });
 
-        // Create the response with the deposit message
-        messages.push(msg_place_limit_order);
+        // push SubMsg
+        messages.push(SubMsg::reply_on_success(msg_place_limit_order, schedule.id as u64));
     }
     // Remove marked schedules
     schedules
@@ -167,7 +125,7 @@ pub fn run_schedule(
     // Save the updated config, Config not modified
     SCHEDULES.save(deps.storage, &schedules)?;
     Ok(Response::new()
-        .add_messages(messages)
+        .add_submessages(messages)
         .add_attribute("action", "dex_deposit"))
 }
 
@@ -214,4 +172,27 @@ pub fn withdraw_all(
         .add_attribute("action", "withdraw")
         .add_attribute("beneficiary", info.sender.to_string())
         .add_attribute("amount", amount_owed.to_string()))
+}
+
+pub fn handle_place_limit_order_reply(
+    deps: DepsMut,
+    _env: Env,
+    msg_result: SubMsgResult,
+    schedule_id: u64,
+) -> Result<Response, ContractError> {
+    match msg_result {
+        SubMsgResult::Ok(result) => {
+            Ok(Response::new()
+            .add_attribute("action", "place_limit_order_reply_success")
+            .add_attribute("schedule_id", schedule_id.to_string())
+            )
+        }
+        SubMsgResult::Err(err) => {
+            // On failure, we gracefully stop execution without consuming more gas
+            return Ok(Response::new()
+                .add_attribute("action", "place_limit_order_reply_error")
+                .add_attribute("error", err)
+                .add_attribute("schedule_id", schedule_id.to_string()));
+        }
+    }
 }
