@@ -114,8 +114,10 @@ pub fn run_schedules(deps: DepsMut, env: Env) -> Result<Response, ContractError>
             limit_sell_price: None,
         });
 
+        deps.api.debug(&format!(">>>>>>>>>>>>>>>> Placing limit order for schedule {}", schedule.id));
+
         // push SubMsg
-        submessages.push(SubMsg::reply_on_success(
+        submessages.push(SubMsg::reply_always(
             msg_place_limit_order,
             schedule.id as u64,
         ));
@@ -164,7 +166,7 @@ pub fn withdraw_all(
                     amount: amount_owed,
                 }],
             }
-            .into(),
+                .into(),
         );
     }
 
@@ -181,23 +183,33 @@ pub fn handle_run_schedule_reply(
     msg_result: SubMsgResult,
     schedule_id: u64,
 ) -> Result<Response, ContractError> {
+    deps.api.debug(&format!(">>>>>>>>>>>>>>>>> Entering handle_run_schedule_reply for schedule_id: {}", schedule_id));
+    deps.api.debug(&format!(">>>>>>>>>>>>>>>>> SubMsgResult: {:?}", msg_result));
     match msg_result {
         SubMsgResult::Ok(result) => {
             let amount_in = extract_amount_in(&result)?;
+            deps.api.debug(&format!(">>>>>>>>>>>>>>>>> Extracted amount_in: {}", amount_in));
+
             let mut schedules = SCHEDULES.load(deps.storage)?;
 
             update_schedules(&mut schedules, schedule_id, amount_in)?;
 
             SCHEDULES.save(deps.storage, &schedules)?;
 
+            deps.api.debug(&format!(">>>>>>>>>>>>>>>>> Saving handle_run_schedule_reply for schedule_id: {}", schedule_id));
+
             Ok(Response::new()
                 .add_attribute("action", "place_limit_order_reply_success")
                 .add_attribute("schedule_id", schedule_id.to_string())
                 .add_attribute("amount_in", amount_in.to_string()))
         }
-        SubMsgResult::Err(err) => Ok(Response::new()
-            .add_attribute("action", "place_limit_order_reply_error")
-            .add_attribute("error", err)
-            .add_attribute("schedule_id", schedule_id.to_string())),
+        SubMsgResult::Err(err) => {
+            deps.api.debug(&format!(">>>>>>>>>>>>>>>>> Extracted amount_in: {:?}", err));
+            Ok(Response::new()
+                .add_attribute("action", "place_limit_order_reply_error")
+                .add_attribute("error", err)
+                .add_attribute("schedule_id", schedule_id.to_string()))
+        }
     }
 }
+
