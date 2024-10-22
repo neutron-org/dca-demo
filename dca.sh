@@ -1,6 +1,11 @@
 contract="./artifacts/dca.wasm"
-account=testnet
-chain_id=test-1
+
+# This is an account with mnemonic:
+# `kiwi valid tiger wish shop time exile client metal view spatial ahead`
+#
+# neutrond keys add demowallet1 --recover
+account=demowallet1
+chain_id=ntrntest
 node=http://localhost:26657
 
 neutrond config node $node
@@ -12,7 +17,7 @@ sleep 1
 
 code_id=$(neutrond q tx $tx_hash --output json --node $node| jq -r '.events.[] | select(.type == "store_code") | .attributes.[] | select(.key == "code_id") | .value')
 echo "code_id: $code_id"
-resp=$(neutrond tx wasm instantiate $code_id '{"owner": "neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2", "denom_ntrn": "untrn", "denom_usd": "uibcusdc", "max_block_old": 20, "max_schedules": 20}' --label test-mmvault --admin neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2 --gas auto --output json --chain-id $chain_id --from $account --gas-prices 0.125untrn --gas-adjustment 1.5 -y)
+resp=$(neutrond tx wasm instantiate $code_id '{"owner": "neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j", "denom_ntrn": "untrn", "denom_usd": "uibcusdc", "max_block_old": 20, "max_schedules": 20}' --label test-mmvault --admin neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j --gas auto --output json --chain-id $chain_id --from $account --gas-prices 0.125untrn --gas-adjustment 1.5 -y)
 tx_hash=$(echo $resp | jq -r ".txhash")
 sleep 1
 
@@ -68,26 +73,24 @@ execute_contract "Deposit DCA 1" '{"deposit_dca": {"max_sell_amount": "5000", "m
 execute_contract "Deposit DCA 2" '{"deposit_dca": {"max_sell_amount": "5000", "max_slippage_basis_points": 10}}' "--amount 15000uibcusdc"
 
 print_header "Active Schedules"
-query_contract '{"get_schedules":{"address": "neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2"}}'
+query_contract '{"get_schedules":{"address": "neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j"}}'
 
 print_header "Withdrawing All Schedules"
 execute_contract "Withdraw All" '{"withdraw_all": {}}'
 
 print_header "Active Schedules After Withdrawal"
-query_contract '{"get_schedules":{"address": "neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2"}}'
+query_contract '{"get_schedules":{"address": "neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j"}}'
 
 print_header "Creating New Schedules"
 execute_contract "Deposit DCA 3" '{"deposit_dca": {"max_sell_amount": "5000", "max_slippage_basis_points": 10}}' "--amount 10000uibcusdc"
 execute_contract "Deposit DCA 4" '{"deposit_dca": {"max_sell_amount": "5000", "max_slippage_basis_points": 10}}' "--amount 15000uibcusdc"
 
 print_header "New Active Schedules"
-query_contract '{"get_schedules":{"address": "neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2"}}'
+query_contract '{"get_schedules":{"address": "neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j"}}'
 
 print_header "Running Schedules"
 for i in {1..3}; do
     print_header "Run $i"
     execute_contract "Run Schedules" '{"run_schedules": {}}'
-    query_contract '{"get_schedules":{"address": "neutron1m9l358xunhhwds0568za49mzhvuxx9ux8xafx2"}}'
+    query_contract '{"get_schedules":{"address": "neutron13nfu3ct5xkr0vlswgk3gl9zazp7zan88edz67j"}}'
 done
-
-
