@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdError, Uint128};
+use cosmwasm_std::{OverflowError, StdError, Uint128};
 use thiserror::Error;
 
 pub type ContractResult<T> = core::result::Result<T, ContractError>;
@@ -16,6 +16,9 @@ pub enum ContractError {
 
     #[error("already at max schedule capacity")]
     MaxSchedulesReached,
+
+    #[error("overflow has happened")]
+    OverflowError(#[from] OverflowError),
 
     #[error("User has an active schedule already.")]
     ExistingBalance,

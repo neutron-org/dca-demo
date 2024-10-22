@@ -64,6 +64,13 @@ pub fn deposit_dca(
         .add_attribute("amount", sent_funds[0].amount.to_string()))
 }
 
+pub fn to_dex_price(price: Decimal) -> Result<String, ContractError> {
+    Ok(price
+        .atomics()
+        .checked_mul(Uint128::pow(Uint128::new(10u128), 9))?
+        .to_string())
+}
+
 pub fn run_schedules(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut schedules = SCHEDULES.load(deps.storage)?;
@@ -96,7 +103,8 @@ pub fn run_schedules(deps: DepsMut, env: Env) -> Result<Response, ContractError>
             price + Decimal::from_ratio(schedule.max_slippage_basis_points, 10000u128);
         //increase target sell price by the basis point adjustment
         let schedule_price = price + basis_point_adjustment;
-        let target_tick_index = price_to_tick_index(schedule_price);
+        // let target_tick_index = price_to_tick_index(schedule_price);
+        // 1.1 = 1100000000000000000
 
         // place an IMMEDIATE_OR_CANCEL limit order. This will sell as much as it can at the price
         // if the price changes before the order is filled the order will be cancelled
@@ -105,13 +113,13 @@ pub fn run_schedules(deps: DepsMut, env: Env) -> Result<Response, ContractError>
             receiver: schedule.owner.to_string(),
             token_in: token_in.clone(),
             token_out: token_out.clone(),
-            tick_index_in_to_out: target_tick_index.unwrap(),
+            tick_index_in_to_out: 0,
             amount_in: sell_amount.to_string(),
             order_type: LimitOrderType::ImmediateOrCancel.into(),
             expiration_time: None,
             min_average_sell_price: None,
             max_amount_out: None,
-            limit_sell_price: None,
+            limit_sell_price: Some(to_dex_price(schedule_price)?),
         });
 
         // push SubMsg
